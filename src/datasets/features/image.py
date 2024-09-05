@@ -269,6 +269,7 @@ class Image:
                 bytes_ = f.read()
             return bytes_
 
+        paths_list = [os.path.basename(path) if path is not None else None for path in storage.field("path").to_pylist()]
         bytes_array = pa.array(
             [
                 (path_to_bytes(x["path"]) if x["bytes"] is None else x["bytes"]) if x is not None else None
@@ -276,10 +277,18 @@ class Image:
             ],
             type=pa.binary(),
         )
-        path_array = pa.array(
-            [os.path.basename(path) if path is not None else None for path in storage.field("path").to_pylist()],
-            type=pa.string(),
-        )
+        if isinstance(bytes_array, pa.ChunkedArray):
+            # This is a rare case where the image files overflow the binary container. We only take the first chunk for now.
+            bytes_array = bytes_array.chunks[0]
+            num_included = len(bytes_array)
+            num_excluded = len(paths_list) - num_included
+            warnings.warn(
+                f"{num_excluded} image files are not included in the Arrow array because they are larger than expected. " \
+                f"You can try setting `datasets.config.DEFAULT_MAX_BATCH_SIZE` to a number smaller than the current {config.DEFAULT_MAX_BATCH_SIZE} to get around this. " \
+                f"The excluded files are: {paths_list[-num_excluded:]}", UserWarning
+            )
+            paths_list = paths_list[:num_included]
+        path_array = pa.array(paths_list, type=pa.string())
         storage = pa.StructArray.from_arrays([bytes_array, path_array], ["bytes", "path"], mask=bytes_array.is_null())
         return array_cast(storage, self.pa_type)
 

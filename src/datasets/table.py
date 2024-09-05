@@ -1,5 +1,6 @@
 import copy
 import os
+import warnings
 from functools import partial
 from itertools import groupby
 from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Tuple, TypeVar, Union
@@ -2262,6 +2263,15 @@ def embed_table_storage(table: pa.Table):
         embed_array_storage(table[name], feature) if require_storage_embed(feature) else table[name]
         for name, feature in features.items()
     ]
+    array_lengths = set([len(array) for array in arrays])
+    if len(array_lengths) != 1:
+        # Truncate to minimum and warn
+        min_length = min(array_lengths)
+        max_length = max(array_lengths)
+        arrays = [array.slice(0, min_length) for array in arrays]
+        warnings.warn(
+            f"Truncated embedded table arrays to minimum length {min_length} (max: {max_length})", UserWarning
+        )
     return pa.Table.from_arrays(arrays, schema=features.arrow_schema)
 
 
